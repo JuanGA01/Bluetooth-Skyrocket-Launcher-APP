@@ -8,6 +8,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -65,42 +67,40 @@ fun MainScreen(viewModel: CountdownViewModel) {
             .fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-
-            if (isCounting) {
-
-                Box(
-                    modifier = Modifier
-                        .background(
-                            color = Color(0xFF6B8E23), // Color oliva
-                            shape = RoundedCornerShape(12.dp)
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(bottom = 48.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(200.dp)
+                    .background(Color(0xFF6B8E23), shape = RoundedCornerShape(12.dp))
+                    .border(2.dp, Color.Black, RoundedCornerShape(12.dp))
+                    .padding(horizontal = 32.dp, vertical = 16.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = viewModel.lcdDisplay.value,
+                    fontSize = 64.sp,
+                    fontFamily = lcdFont,
+                    color = Color.Black,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.alpha(alpha),
+                    style = TextStyle(
+                        letterSpacing = 4.sp,
+                        shadow = Shadow(
+                            color = Color(0x66000000),
+                            blurRadius = 4f
                         )
-                        .border(
-                            width = 2.dp,
-                            color = Color.Black,
-                            shape = RoundedCornerShape(12.dp)
-                        )
-                        .padding(horizontal = 32.dp, vertical = 16.dp)
-                ) {
-                    Text(
-                        text = count.toString(),
-                        fontSize = 64.sp,
-                        fontFamily = lcdFont,
-                        color = Color.Black, // Texto negro
-                        modifier = Modifier
-                            .alpha(alpha),
-                        style = TextStyle(
-                            letterSpacing = 4.sp,
-                            shadow = Shadow(
-                                color = Color(0x66000000), // Sombra sutil
-                                blurRadius = 4f
-                            )
-                        ),
-                        textAlign = TextAlign.Center
                     )
-                }
-                Spacer(modifier = Modifier.height(24.dp))
+                )
             }
+
+            // 👇 AQUI el espaciado REAL entre LCD y botón iniciar
+            Spacer(modifier = Modifier.height(48.dp))
 
             FancyButton(
                 text = "INICIAR",
@@ -110,19 +110,25 @@ fun MainScreen(viewModel: CountdownViewModel) {
                 colorPressed = Color(0xFFB71C1C)
             )
 
-            if (!isCounting) {
-                Spacer(modifier = Modifier.height(32.dp))
-                FancyButton(
-                    text = "CANCELAR",
-                    onClick = { viewModel.cancelCountdown() },
-                    size = 120.dp,
-                    colorDefault = Color(0xFFBDBDBD),
-                    colorPressed = Color(0xFF757575)
-                )
+            Spacer(modifier = Modifier.height(32.dp))
+
+
+            Box(modifier = Modifier.height(120.dp)) {
+                if (isCounting) {
+                    FancyButton(
+                        text = "CANCELAR",
+                        onClick = { viewModel.cancelCountdown() },
+                        size = 120.dp,
+                        colorDefault = Color(0xFFBDBDBD),
+                        colorPressed = Color(0xFF757575)
+                    )
+                }
             }
+
         }
     }
 }
+
 
 
 @Composable

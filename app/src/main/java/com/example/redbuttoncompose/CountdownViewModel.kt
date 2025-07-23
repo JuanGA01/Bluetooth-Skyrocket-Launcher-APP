@@ -5,6 +5,8 @@ import android.app.Application
 import android.media.MediaPlayer
 import android.os.Build
 import android.os.CountDownTimer
+import android.os.Handler
+import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
 import androidx.annotation.RequiresApi
@@ -16,23 +18,34 @@ class CountdownViewModel(application: Application) : AndroidViewModel(applicatio
 
     val context = application.applicationContext
     val isCounting = mutableStateOf(false)
-    val currentCount = mutableStateOf(10)
+    val currentCount = mutableStateOf(11)
+    val lcdDisplay = mutableStateOf("88")
 
     private var timer: CountDownTimer? = null
     private var mediaPlayer: MediaPlayer? = null
     private val vibrator = context.getSystemService(Vibrator::class.java)
+
+    init {
+        Handler(Looper.getMainLooper()).postDelayed({
+            if (!isCounting.value) {
+                lcdDisplay.value = "__"
+            }
+        }, 1500)
+    }
 
     fun startCountdown() {
         if (isCounting.value) return
 
         isCounting.value = true
         currentCount.value = 10
+        lcdDisplay.value = "10"
         playBeep()
 
-        timer = object : CountDownTimer(10_000, 1000) {
+        timer = object : CountDownTimer(10_999, 1000) {
             override fun onTick(millisUntilFinished: Long) {
                 val seconds = (millisUntilFinished / 1000).toInt()
                 currentCount.value = seconds
+                lcdDisplay.value = seconds.toString().padStart(2, ' ') // para mantener alineado
                 playBeep()
             }
 
@@ -40,6 +53,7 @@ class CountdownViewModel(application: Application) : AndroidViewModel(applicatio
             @RequiresApi(Build.VERSION_CODES.O)
             override fun onFinish() {
                 currentCount.value = 0
+                lcdDisplay.value = "00"
                 isCounting.value = false
                 vibrate()
             }
@@ -49,6 +63,8 @@ class CountdownViewModel(application: Application) : AndroidViewModel(applicatio
     fun cancelCountdown() {
         timer?.cancel()
         isCounting.value = false
+        currentCount.value = 10
+        lcdDisplay.value = "__"
     }
 
     private fun playBeep() {
@@ -69,3 +85,4 @@ class CountdownViewModel(application: Application) : AndroidViewModel(applicatio
         super.onCleared()
     }
 }
+
