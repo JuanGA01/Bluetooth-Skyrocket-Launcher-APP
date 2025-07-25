@@ -1,7 +1,8 @@
-package com.example.redbuttoncompose
+package redbuttoncompose
 
 import android.Manifest
 import android.app.Application
+import android.content.pm.PackageManager
 import android.media.MediaPlayer
 import android.os.Build
 import android.os.CountDownTimer
@@ -13,6 +14,7 @@ import androidx.annotation.RequiresApi
 import androidx.annotation.RequiresPermission
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.AndroidViewModel
+import com.example.redbuttoncompose.R
 
 class CountdownViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -45,7 +47,7 @@ class CountdownViewModel(application: Application) : AndroidViewModel(applicatio
             override fun onTick(millisUntilFinished: Long) {
                 val seconds = (millisUntilFinished / 1000).toInt()
                 currentCount.value = seconds
-                lcdDisplay.value = seconds.toString().padStart(2, ' ') // para mantener alineado
+                lcdDisplay.value = String.format("%02d", seconds)
                 playBeep()
             }
 
@@ -53,7 +55,7 @@ class CountdownViewModel(application: Application) : AndroidViewModel(applicatio
             @RequiresApi(Build.VERSION_CODES.O)
             override fun onFinish() {
                 currentCount.value = 0
-                lcdDisplay.value = "00"
+                lcdDisplay.value = "__"
                 isCounting.value = false
                 vibrate()
             }
@@ -68,15 +70,24 @@ class CountdownViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     private fun playBeep() {
-        mediaPlayer?.release()
-        mediaPlayer = MediaPlayer.create(context, R.raw.beep)
+        if (mediaPlayer == null) {
+            mediaPlayer = MediaPlayer.create(context, R.raw.beep)
+        } else {
+            mediaPlayer?.seekTo(0)
+        }
         mediaPlayer?.start()
     }
 
     @RequiresApi(Build.VERSION_CODES.O)
     @RequiresPermission(Manifest.permission.VIBRATE)
     private fun vibrate() {
-        vibrator?.vibrate(VibrationEffect.createOneShot(500, VibrationEffect.DEFAULT_AMPLITUDE))
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            context.checkSelfPermission(Manifest.permission.VIBRATE) != PackageManager.PERMISSION_GRANTED
+        ) return
+
+        vibrator?.vibrate(
+            VibrationEffect.createOneShot(500, VibrationEffect.DEFAULT_AMPLITUDE)
+        )
     }
 
     override fun onCleared() {
@@ -85,4 +96,3 @@ class CountdownViewModel(application: Application) : AndroidViewModel(applicatio
         super.onCleared()
     }
 }
-

@@ -1,4 +1,4 @@
-package com.example.redbuttoncompose
+package redbuttoncompose
 
 import org.junit.Test
 
