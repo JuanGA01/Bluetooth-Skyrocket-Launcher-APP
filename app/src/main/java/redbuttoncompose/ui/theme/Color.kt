@@ -1,4 +1,4 @@
-package com.example.redbuttoncompose.ui.theme
+package redbuttoncompose.ui.theme
 
 import androidx.compose.ui.graphics.Color
 

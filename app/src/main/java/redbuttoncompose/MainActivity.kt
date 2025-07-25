@@ -1,4 +1,4 @@
-package com.example.redbuttoncompose
+package redbuttoncompose
 
 import android.Manifest
 import android.bluetooth.BluetoothAdapter

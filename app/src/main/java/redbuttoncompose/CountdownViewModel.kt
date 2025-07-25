@@ -1,4 +1,4 @@
-package com.example.redbuttoncompose
+package redbuttoncompose
 
 import android.Manifest
 import android.app.Application
@@ -13,6 +13,7 @@ import androidx.annotation.RequiresApi
 import androidx.annotation.RequiresPermission
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.AndroidViewModel
+import com.example.redbuttoncompose.R
 
 class CountdownViewModel(application: Application) : AndroidViewModel(application) {
 
