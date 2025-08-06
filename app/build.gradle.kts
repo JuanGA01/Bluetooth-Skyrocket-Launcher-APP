@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "com.example.redbuttoncompose"
+    namespace = "com.redbutton.redbuttoncompose"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.example.redbuttoncompose"
+        applicationId = "com.redbutton.redbuttoncompose"
         minSdk = 24
         targetSdk = 36
         versionCode = 1
