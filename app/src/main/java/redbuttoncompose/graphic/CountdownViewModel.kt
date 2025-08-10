@@ -1,4 +1,4 @@
-package redbuttoncompose
+package redbuttoncompose.graphic
 
 import android.Manifest
 import android.app.Application
@@ -95,4 +95,5 @@ class CountdownViewModel(application: Application) : AndroidViewModel(applicatio
         mediaPlayer?.release()
         super.onCleared()
     }
+
 }

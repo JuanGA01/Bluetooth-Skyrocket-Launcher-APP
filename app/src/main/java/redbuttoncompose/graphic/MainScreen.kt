@@ -1,4 +1,4 @@
-package redbuttoncompose
+package redbuttoncompose.graphic
 
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateDpAsState
@@ -130,8 +130,6 @@ fun MainScreen(viewModel: CountdownViewModel) {
     }
 }
 
-
-
 @Composable
 fun FancyButton(
     text: String,
@@ -187,5 +185,5 @@ fun FancyButton(
             color = Color.White
         )
     }
-}
 
+}

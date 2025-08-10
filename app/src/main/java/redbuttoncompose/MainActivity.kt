@@ -1,190 +1,118 @@
 package redbuttoncompose
 
-import android.Manifest
-import android.bluetooth.BluetoothAdapter
+import android.annotation.SuppressLint
 import android.bluetooth.BluetoothDevice
-import android.bluetooth.BluetoothGatt
-import android.bluetooth.BluetoothGattCallback
-import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothManager
-import android.bluetooth.BluetoothProfile
-import android.bluetooth.le.BluetoothLeScanner
-import android.bluetooth.le.ScanCallback
-import android.bluetooth.le.ScanResult
-import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
+import android.view.View
+import android.widget.Button
+import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.annotation.RequiresPermission
-import androidx.core.app.ActivityCompat
-import androidx.lifecycle.viewmodel.compose.viewModel
-import java.util.UUID
+import androidx.annotation.RequiresApi
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
+import com.redbutton.redbuttoncompose.R
+import redbuttoncompose.blescanner.BleScanManager
+import redbuttoncompose.blescanner.adapter.BleDeviceAdapter
+import redbuttoncompose.blescanner.connector.BleDeviceConnector
+import redbuttoncompose.blescanner.model.BleDevice
+import redbuttoncompose.blescanner.model.BleScanCallback
+import redbuttoncompose.permitions.PermissionsUtilities
+import redbuttoncompose.permitions.PermissionsUtilities.dispatchOnRequestPermissionsResult
+import redbuttoncompose.permitions.permissions
 
-class MainActivity : ComponentActivity() {
-    private lateinit var bluetoothAdapter: BluetoothAdapter
-    private lateinit var bluetoothLeScanner: BluetoothLeScanner
-    private var bluetoothGatt: BluetoothGatt? = null
-    private var scanCallback: ScanCallback? = null
-    private var isScanning = false
+class MainActivity : ComponentActivity()  {
+    private lateinit var btnStartScan: Button
+    private lateinit var btManager: BluetoothManager
+    private lateinit var bleScanManager: BleScanManager
+    private lateinit var bleDeviceConnector: BleDeviceConnector
+    private lateinit var foundDevices: MutableList<BleDevice>
 
-    private val targetDeviceName = "Rocket Launcher"
-    private val serviceUUID: java.util.UUID? = UUID.fromString("12345678-1234-5678-1234-56789abcdef0")
-    private val characteristicUUID: java.util.UUID? = UUID.fromString("12345678-1234-5678-1234-56789abcdef1")
-    private val launchCode = "v4Y{/\u005CiOZ521#%.%" // Java escape for backslash
-
-    private lateinit var viewModel: CountdownViewModel
-
-    private val scanTimeoutHandler = Handler(Looper.getMainLooper())
-    private val scanTimeoutRunnable = Runnable {
-        if (isScanning) {
-            stopScan()
-            println("⏱️ Scan timeout. Stopped scanning.")
-        }
-    }
-
+    @SuppressLint("NotifyDataSetChanged", "MissingPermission")
+    @RequiresApi(Build.VERSION_CODES.S)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
 
-        val bluetoothManager = getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
-        bluetoothAdapter = bluetoothManager.adapter
+        bleDeviceConnector = BleDeviceConnector(this)
 
-        setContent {
-            viewModel = viewModel()
-            MainScreen(viewModel)
-        }
+        // RecyclerView handling
+        val rvFoundDevices = findViewById<View>(R.id.rv_found_devices) as RecyclerView
+        foundDevices = BleDevice.createBleDevicesList()
+        val adapter = BleDeviceAdapter(foundDevices)
+        rvFoundDevices.adapter = adapter
+        rvFoundDevices.layoutManager = LinearLayoutManager(this)
 
-        if (bluetoothAdapter.isEnabled) {
-            requestPermissions()
-        }
-    }
+        // BleManager creation
+        btManager = getSystemService(BluetoothManager::class.java)
+        bleScanManager = BleScanManager(btManager, 5000, scanCallback = BleScanCallback(
+            allowedName = "Rocket Launcher",
+            onAllowedDeviceFound = {
+                val name = it.address
+                if (name.isNullOrBlank()) return@BleScanCallback
 
-    private fun requestPermissions() {
-        val permissions = listOf(
-            Manifest.permission.BLUETOOTH_SCAN,
-            Manifest.permission.BLUETOOTH_CONNECT,
-            Manifest.permission.ACCESS_FINE_LOCATION
-        ).filter {
-            ActivityCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
-        }
-
-        if (permissions.isNotEmpty()) {
-            permissionLauncher.launch(permissions.toTypedArray())
-        } else {
-            startScan()
-        }
-    }
-
-    private val permissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
-            if (
-                result[Manifest.permission.BLUETOOTH_SCAN] == true &&
-                result[Manifest.permission.BLUETOOTH_CONNECT] == true &&
-                result[Manifest.permission.ACCESS_FINE_LOCATION] == true
-            ) {
-                startScan()
-            } else {
-                println("🚫 Permisos no concedidos")
-            }
-        }
-
-    private fun startScan() {
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN)
-            != PackageManager.PERMISSION_GRANTED
-        ) return
-
-        bluetoothLeScanner = bluetoothAdapter.bluetoothLeScanner
-
-        scanCallback = object : ScanCallback() {
-            @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
-            override fun onScanResult(callbackType: Int, result: ScanResult) {
-                val device = result.device
-                if (device.name == targetDeviceName) {
-                    println("📡 Dispositivo detectado: ${device.name}")
-                    stopScan()
-                    connectToDevice(device)
+                val device = BleDevice(name)
+                if (!foundDevices.contains(device)) {
+                    foundDevices.add(device)
+                    adapter.notifyItemInserted(foundDevices.size - 1)
                 }
             }
+        ))
+
+
+        // Adding the actions the manager must do before and after scanning
+        bleScanManager.beforeScanActions.add { btnStartScan.isEnabled = false }
+        bleScanManager.beforeScanActions.add {
+            foundDevices.clear()
+            adapter.notifyDataSetChanged()
         }
+        bleScanManager.afterScanActions.add { btnStartScan.isEnabled = true }
 
-        bluetoothLeScanner.startScan(scanCallback)
-        isScanning = true
-        scanTimeoutHandler.postDelayed(scanTimeoutRunnable, 10_000)
-    }
-
-    private fun stopScan() {
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN)
-            == PackageManager.PERMISSION_GRANTED
-        ) {
-            try {
-                bluetoothLeScanner.stopScan(scanCallback)
-            } catch (e: SecurityException) {
-                println("🚫 SecurityException al detener escaneo: ${e.message}")
+        // Adding the onclick listener to the start scan button
+        btnStartScan = findViewById(R.id.btn_start_scan)
+        btnStartScan.setOnClickListener {
+            // Checks if the required permissions are granted and starts the scan if so, otherwise it requests them
+            when (PermissionsUtilities.checkPermissionsGranted(
+                this,
+                permissions
+            )) {
+                true -> bleScanManager.scanBleDevices()
+                false -> PermissionsUtilities.checkPermissions(
+                    this, permissions, BLE_PERMISSION_REQUEST_CODE
+                )
             }
         }
-        isScanning = false
     }
 
-    @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
-    private fun connectToDevice(device: BluetoothDevice) {
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT)
-            != PackageManager.PERMISSION_GRANTED
-        ) return
-
-        bluetoothGatt = device.connectGatt(this, false, object : BluetoothGattCallback() {
-            @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
-            override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
-                if (newState == BluetoothProfile.STATE_CONNECTED) {
-                    println("✅ Conectado a ${device.name}")
-                    gatt.discoverServices()
-                } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                    println("❌ Desconectado de ${device.name}")
-                }
-            }
-
-            @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
-            override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
-                if (status == BluetoothGatt.GATT_SUCCESS) {
-                    val service = gatt.getService(serviceUUID)
-                    val characteristic = service?.getCharacteristic(characteristicUUID)
-
-                    if (characteristic != null) {
-                        characteristic.value = launchCode.toByteArray()
-                        val success = gatt.writeCharacteristic(characteristic)
-                        println("🚀 Enviando comando de lanzamiento: ${if (success) "OK" else "FALLÓ"}")
-                        viewModel.startCountdown()
-                    } else {
-                        println("🚫 Característica no encontrada")
-                    }
-                } else {
-                    println("🚫 Error descubriendo servicios: $status")
-                }
-            }
-
-            override fun onCharacteristicWrite(
-                gatt: BluetoothGatt,
-                characteristic: BluetoothGattCharacteristic,
-                status: Int
-            ) {
-                if (status == BluetoothGatt.GATT_SUCCESS) {
-                    println("✅ Comando de lanzamiento escrito con éxito")
-                } else {
-                    println("🚫 Falló escritura del comando: $status")
-                }
-            }
-        })
-    }
-
-    @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
-    override fun onDestroy() {
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT)
-            == PackageManager.PERMISSION_GRANTED
-        ) {
-            bluetoothGatt?.close()
+    @SuppressLint("MissingPermission")
+    private fun bondDevice(device: BluetoothDevice) {
+        if (device.bondState == BluetoothDevice.BOND_BONDED) {
+            Toast.makeText(this, "Device already bonded", Toast.LENGTH_SHORT).show()
+            return
         }
-        scanTimeoutHandler.removeCallbacks(scanTimeoutRunnable)
-        super.onDestroy()
+        device.createBond()
+        Toast.makeText(this, "Bonding started", Toast.LENGTH_SHORT).show()
     }
+
+    @RequiresApi(Build.VERSION_CODES.S)
+    override fun onRequestPermissionsResult(
+        requestCode: Int, permissions: Array<out String>, grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+
+        dispatchOnRequestPermissionsResult(
+            requestCode,
+            grantResults,
+            onGrantedMap = mapOf(BLE_PERMISSION_REQUEST_CODE to { bleScanManager.scanBleDevices() }),
+            onDeniedMap = mapOf(BLE_PERMISSION_REQUEST_CODE to { Toast.makeText(this,
+                "Some permissions were not granted, please grant them and try again",
+                Toast.LENGTH_LONG).show() })
+        )
+    }
+
+    companion object {
+        private const val BLE_PERMISSION_REQUEST_CODE = 1
+    }
+
 }
