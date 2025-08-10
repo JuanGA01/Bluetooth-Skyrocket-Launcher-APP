@@ -1,8 +1,10 @@
 package redbuttoncompose
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.view.GestureDetector
@@ -12,6 +14,7 @@ import android.widget.Button
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.annotation.RequiresApi
+import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.redbutton.redbuttoncompose.R
@@ -29,9 +32,13 @@ class MainActivity : ComponentActivity()  {
     private lateinit var btManager: BluetoothManager
     private lateinit var bleScanManager: BleScanManager
     private lateinit var bleDeviceConnector: BleDeviceConnector
-    private val remoteDevicesMap: MutableMap<String, BluetoothDevice> = mutableMapOf()
-
     private lateinit var foundDevices: MutableList<BleDevice>
+
+    // --- NUEVAS estructuras ---
+    private val remoteDevicesMap: MutableMap<String, BluetoothDevice> = mutableMapOf()
+    private val attemptedBondAddresses: MutableSet<String> = mutableSetOf()
+    private var pendingDeviceToBond: BluetoothDevice? = null
+    // --------------------------
 
     @SuppressLint("NotifyDataSetChanged", "MissingPermission")
     @RequiresApi(Build.VERSION_CODES.S)
@@ -41,19 +48,17 @@ class MainActivity : ComponentActivity()  {
 
         bleDeviceConnector = BleDeviceConnector(this)
 
-        // RecyclerView handling
+        // RecyclerView handling (igual que antes)
         val rvFoundDevices = findViewById<View>(R.id.rv_found_devices) as RecyclerView
         foundDevices = BleDevice.createBleDevicesList()
         val adapter = BleDeviceAdapter(foundDevices)
         rvFoundDevices.adapter = adapter
         rvFoundDevices.layoutManager = LinearLayoutManager(this)
 
-        // Después de configurar rvFoundDevices.adapter y layoutManager
+        // Gesture detector / click listener (llama a onDeviceClicked de la Activity)
         val gestureDetector =
             GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
-                override fun onSingleTapUp(e: MotionEvent): Boolean {
-                    return true
-                }
+                override fun onSingleTapUp(e: MotionEvent): Boolean { return true }
             })
 
         rvFoundDevices.addOnItemTouchListener(object : RecyclerView.OnItemTouchListener {
@@ -61,60 +66,38 @@ class MainActivity : ComponentActivity()  {
                 val child = rv.findChildViewUnder(e.x, e.y) ?: return false
                 if (gestureDetector.onTouchEvent(e)) {
                     val position = rv.getChildAdapterPosition(child)
-                    onDeviceClicked(position)
+                    this@MainActivity.onDeviceClicked(position)
                     return true
                 }
                 return false
             }
-
-            @SuppressLint("MissingPermission")
-            private fun onDeviceClicked(position: Int) {
-                if (position < 0 || position >= foundDevices.size) return
-                val address = foundDevices[position].name // en tu modelo 'name' contiene la dirección
-                val btDevice = remoteDevicesMap[address]
-
-                if (btDevice == null) {
-                    Toast.makeText(this@MainActivity, "Device object not available", Toast.LENGTH_SHORT).show()
-                    return
-                }
-
-                // Comprueba permisos necesarios (especialmente BLUETOOTH_CONNECT en Android 12+)
-                if (!PermissionsUtilities.checkPermissionsGranted(this@MainActivity, permissions)) {
-                    PermissionsUtilities.checkPermissions(this@MainActivity, permissions, BLE_PERMISSION_REQUEST_CODE)
-                    return
-                }
-
-                // Llamamos a tu connector (que ya hace createBond() si no está emparejado)
-                bleDeviceConnector.connect(btDevice)
-                Toast.makeText(this@MainActivity, "Attempting to bond/connect to $address", Toast.LENGTH_SHORT).show()
-            }
-
-
             override fun onTouchEvent(rv: RecyclerView, e: MotionEvent) {}
             override fun onRequestDisallowInterceptTouchEvent(disallowIntercept: Boolean) {}
         })
 
-
-        // BleManager creation
+        // BleManager creation y callback — guardamos el BluetoothDevice real y lanzamos bonding automático
         btManager = getSystemService(BluetoothManager::class.java)
         bleScanManager = BleScanManager(btManager, 5000, scanCallback = BleScanCallback(
             allowedName = "Rocket Launcher",
             onAllowedDeviceFound = { btDevice ->
-                val address = btDevice.address
-                if (address.isNullOrBlank()) return@BleScanCallback
+                val address = btDevice.address ?: return@BleScanCallback
 
-                // Guarda el BluetoothDevice real
+                // Guarda el BluetoothDevice real para operar después
                 remoteDevicesMap[address] = btDevice
 
+                // Actualiza RecyclerView
                 val device = BleDevice(address)
                 if (!foundDevices.contains(device)) {
                     foundDevices.add(device)
                     adapter.notifyItemInserted(foundDevices.size - 1)
                 }
+
+                // Intento automático de bonding
+                attemptAutoBond(btDevice)
             }
         ))
 
-        // Adding the actions the manager must do before and after scanning
+        // Actions before/after scan
         bleScanManager.beforeScanActions.add { btnStartScan.isEnabled = false }
         bleScanManager.beforeScanActions.add {
             foundDevices.clear()
@@ -122,30 +105,73 @@ class MainActivity : ComponentActivity()  {
         }
         bleScanManager.afterScanActions.add { btnStartScan.isEnabled = true }
 
-        // Adding the onclick listener to the start scan button
+        // Start button (backup)
         btnStartScan = findViewById(R.id.btn_start_scan)
         btnStartScan.setOnClickListener {
-            // Checks if the required permissions are granted and starts the scan if so, otherwise it requests them
-            when (PermissionsUtilities.checkPermissionsGranted(
-                this,
-                permissions
-            )) {
+            when (PermissionsUtilities.checkPermissionsGranted(this, permissions)) {
                 true -> bleScanManager.scanBleDevices()
-                false -> PermissionsUtilities.checkPermissions(
-                    this, permissions, BLE_PERMISSION_REQUEST_CODE
-                )
+                false -> PermissionsUtilities.checkPermissions(this, permissions, BLE_PERMISSION_REQUEST_CODE)
             }
+        }
+
+        // --- Auto start scan al arrancar (si permisos ya concedidos) ---
+        if (PermissionsUtilities.checkPermissionsGranted(this, permissions)) {
+            bleScanManager.scanBleDevices()
+        } else {
+            PermissionsUtilities.checkPermissions(this, permissions, BLE_PERMISSION_REQUEST_CODE)
         }
     }
 
+    // Manejar click en item: (usa el BluetoothDevice guardado)
     @SuppressLint("MissingPermission")
-    private fun bondDevice(device: BluetoothDevice) {
-        if (device.bondState == BluetoothDevice.BOND_BONDED) {
-            Toast.makeText(this, "Device already bonded", Toast.LENGTH_SHORT).show()
+    private fun onDeviceClicked(position: Int) {
+        if (position < 0 || position >= foundDevices.size) return
+        val address = foundDevices[position].name
+        val btDevice = remoteDevicesMap[address]
+        if (btDevice == null) {
+            Toast.makeText(this@MainActivity, "Device object not available", Toast.LENGTH_SHORT).show()
             return
         }
-        device.createBond()
-        Toast.makeText(this, "Bonding started", Toast.LENGTH_SHORT).show()
+
+        // Evitar reintentos
+        if (attemptedBondAddresses.contains(address)) {
+            Toast.makeText(this@MainActivity, "Bond already attempted for $address", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        // Si faltan permisos, guarda en pending y pide permisos
+        if (!PermissionsUtilities.checkPermissionsGranted(this, permissions)) {
+            pendingDeviceToBond = btDevice
+            PermissionsUtilities.checkPermissions(this, permissions, BLE_PERMISSION_REQUEST_CODE)
+            return
+        }
+
+        // Lanzar bonding/connect
+        attemptedBondAddresses.add(address)
+        bleDeviceConnector.connect(btDevice)
+        Toast.makeText(this@MainActivity, "Attempting to bond/connect to $address", Toast.LENGTH_SHORT).show()
+    }
+
+    // Intento automático invocado desde el callback de scan
+    @RequiresApi(Build.VERSION_CODES.S)
+    @SuppressLint("MissingPermission")
+    private fun attemptAutoBond(btDevice: BluetoothDevice) {
+        val address = btDevice.address ?: return
+
+        // No reintentar si ya intentado
+        if (attemptedBondAddresses.contains(address)) return
+        attemptedBondAddresses.add(address)
+
+        // Si faltan permisos, guarda y pide (se reintentará en onRequestPermissionsResult)
+        if (!PermissionsUtilities.checkPermissionsGranted(this, permissions)) {
+            pendingDeviceToBond = btDevice
+            PermissionsUtilities.checkPermissions(this, permissions, BLE_PERMISSION_REQUEST_CODE)
+            return
+        }
+
+        // Conectar / crear bond
+        bleDeviceConnector.connect(btDevice)
+        Toast.makeText(this@MainActivity, "Automatic bonding started for $address", Toast.LENGTH_SHORT).show()
     }
 
     @RequiresApi(Build.VERSION_CODES.S)
@@ -157,15 +183,33 @@ class MainActivity : ComponentActivity()  {
         dispatchOnRequestPermissionsResult(
             requestCode,
             grantResults,
-            onGrantedMap = mapOf(BLE_PERMISSION_REQUEST_CODE to { bleScanManager.scanBleDevices() }),
-            onDeniedMap = mapOf(BLE_PERMISSION_REQUEST_CODE to { Toast.makeText(this,
-                "Some permissions were not granted, please grant them and try again",
-                Toast.LENGTH_LONG).show() })
+            onGrantedMap = mapOf(BLE_PERMISSION_REQUEST_CODE to {
+                // Si hay un dispositivo pendiente de bond, conéctalo; si no, inicia el escaneo
+                pendingDeviceToBond?.let { device ->
+                    // comprobación extra por si acaso
+                    if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT)
+                        == PackageManager.PERMISSION_GRANTED) {
+                        bleDeviceConnector.connect(device)
+                    } else {
+                        // permiso aún no concedido (raro), pedir de nuevo o notificar
+                        PermissionsUtilities.checkPermissions(this, permissions, BLE_PERMISSION_REQUEST_CODE)
+                    }
+                    pendingDeviceToBond = null
+                } ?: run {
+                    // No había pendiente: arranca el escaneo (comportamiento previo)
+                    bleScanManager.scanBleDevices()
+                }
+            }),
+            onDeniedMap = mapOf(BLE_PERMISSION_REQUEST_CODE to {
+                Toast.makeText(this,
+                    "Some permissions were not granted, please grant them and try again",
+                    Toast.LENGTH_LONG).show()
+                pendingDeviceToBond = null
+            })
         )
     }
 
     companion object {
         private const val BLE_PERMISSION_REQUEST_CODE = 1
     }
-
 }
