@@ -5,6 +5,8 @@ import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.os.Build
 import android.os.Bundle
+import android.view.GestureDetector
+import android.view.MotionEvent
 import android.view.View
 import android.widget.Button
 import android.widget.Toast
@@ -27,6 +29,8 @@ class MainActivity : ComponentActivity()  {
     private lateinit var btManager: BluetoothManager
     private lateinit var bleScanManager: BleScanManager
     private lateinit var bleDeviceConnector: BleDeviceConnector
+    private val remoteDevicesMap: MutableMap<String, BluetoothDevice> = mutableMapOf()
+
     private lateinit var foundDevices: MutableList<BleDevice>
 
     @SuppressLint("NotifyDataSetChanged", "MissingPermission")
@@ -44,22 +48,71 @@ class MainActivity : ComponentActivity()  {
         rvFoundDevices.adapter = adapter
         rvFoundDevices.layoutManager = LinearLayoutManager(this)
 
+        // Después de configurar rvFoundDevices.adapter y layoutManager
+        val gestureDetector =
+            GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+                override fun onSingleTapUp(e: MotionEvent): Boolean {
+                    return true
+                }
+            })
+
+        rvFoundDevices.addOnItemTouchListener(object : RecyclerView.OnItemTouchListener {
+            override fun onInterceptTouchEvent(rv: RecyclerView, e: MotionEvent): Boolean {
+                val child = rv.findChildViewUnder(e.x, e.y) ?: return false
+                if (gestureDetector.onTouchEvent(e)) {
+                    val position = rv.getChildAdapterPosition(child)
+                    onDeviceClicked(position)
+                    return true
+                }
+                return false
+            }
+
+            @SuppressLint("MissingPermission")
+            private fun onDeviceClicked(position: Int) {
+                if (position < 0 || position >= foundDevices.size) return
+                val address = foundDevices[position].name // en tu modelo 'name' contiene la dirección
+                val btDevice = remoteDevicesMap[address]
+
+                if (btDevice == null) {
+                    Toast.makeText(this@MainActivity, "Device object not available", Toast.LENGTH_SHORT).show()
+                    return
+                }
+
+                // Comprueba permisos necesarios (especialmente BLUETOOTH_CONNECT en Android 12+)
+                if (!PermissionsUtilities.checkPermissionsGranted(this@MainActivity, permissions)) {
+                    PermissionsUtilities.checkPermissions(this@MainActivity, permissions, BLE_PERMISSION_REQUEST_CODE)
+                    return
+                }
+
+                // Llamamos a tu connector (que ya hace createBond() si no está emparejado)
+                bleDeviceConnector.connect(btDevice)
+                Toast.makeText(this@MainActivity, "Attempting to bond/connect to $address", Toast.LENGTH_SHORT).show()
+            }
+
+
+            override fun onTouchEvent(rv: RecyclerView, e: MotionEvent) {}
+            override fun onRequestDisallowInterceptTouchEvent(disallowIntercept: Boolean) {}
+        })
+
+
         // BleManager creation
         btManager = getSystemService(BluetoothManager::class.java)
         bleScanManager = BleScanManager(btManager, 5000, scanCallback = BleScanCallback(
             allowedName = "Rocket Launcher",
-            onAllowedDeviceFound = {
-                val name = it.address
-                if (name.isNullOrBlank()) return@BleScanCallback
+            onAllowedDeviceFound = { btDevice ->
+                val address = btDevice.address
+                if (address.isNullOrBlank()) return@BleScanCallback
 
-                val device = BleDevice(name)
+                // Guarda el BluetoothDevice real
+                remoteDevicesMap[address] = btDevice
+
+                val device = BleDevice(address)
                 if (!foundDevices.contains(device)) {
                     foundDevices.add(device)
                     adapter.notifyItemInserted(foundDevices.size - 1)
                 }
             }
         ))
-
 
         // Adding the actions the manager must do before and after scanning
         bleScanManager.beforeScanActions.add { btnStartScan.isEnabled = false }
